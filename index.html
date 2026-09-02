@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wplace pixel tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --ink:#151515; --paper:#f6f5f2; --accent:#e0473a;
+    --panel-bg: rgba(21,21,21,0.92); --panel-fg: #f2f0ea;
+    --mono: "IBM Plex Mono", Consolas, monospace;
+    --sans: "IBM Plex Sans", Helvetica, Arial, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; margin:0; font-family:var(--sans); background:var(--paper); color:var(--ink); }
+  #map{ position:absolute; inset:0; background:#0e0e10; }
+
+  .leaflet-container{ font-family:var(--sans); }
+  .leaflet-tile { image-rendering: pixelated; }
+
+  header.hud{
+    position:absolute; top:0; left:0; right:0; z-index:1000;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px; pointer-events:none;
+  }
+  header.hud .title{
+    pointer-events:auto; background:var(--panel-bg); color:var(--panel-fg);
+    padding:8px 14px; border-radius:2px; font-size:13px;
+    display:flex; align-items:baseline; gap:10px;
+  }
+  header.hud .title b{ font-weight:600; }
+  header.hud .title span{ color:rgba(242,240,234,0.6); font-family:var(--mono); font-size:11px; }
+
+  .controls{
+    pointer-events:auto; background:var(--panel-bg); color:var(--panel-fg);
+    border-radius:2px; padding:6px; display:flex; gap:6px; align-items: center;
+  }
+  .controls button{
+    all:unset; cursor:pointer; padding:7px 11px; font-size:12px;
+    border-radius:1px; color:rgba(242,240,234,0.4); transition: color 0.2s;
+  }
+  .controls button:hover{ color:var(--panel-fg); }
+  .controls button.active{ background:rgba(255,255,255,0.1); color:#fff; }
+
+  .color-wrapper { display: flex; align-items: center; gap: 6px; padding: 0 8px; border-left: 1px solid rgba(255,255,255,0.1); margin-left: 4px; }
+  .color-wrapper span { font-size: 11px; color: rgba(242,240,234,0.6); }
+  #erased-color-picker {
+    -webkit-appearance: none; border: none; width: 22px; height: 22px; cursor: pointer;
+    background: transparent; padding: 0;
+  }
+  #erased-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+  #erased-color-picker::-webkit-color-swatch { border: 1px solid rgba(255,255,255,0.3); border-radius: 2px; }
+
+  #status{
+    position:absolute; bottom:0; left:0; right:0; z-index:1000;
+    display:flex; justify-content:space-between; align-items:center;
+    padding:8px 14px; pointer-events:none; font-family:var(--mono); font-size:11px;
+  }
+  #status .chip{
+    pointer-events:auto; background:var(--panel-bg); color:var(--panel-fg);
+    padding:5px 10px; border-radius:2px;
+  }
+
+  #inspector{
+    position:absolute; z-index:1200; pointer-events:none;
+    background:var(--panel-bg); color:var(--panel-fg);
+    border-radius:2px; padding:10px 12px; font-size:12px;
+    line-height:1.5; min-width:150px; display:none;
+  }
+  #inspector .row{ display:flex; justify-content:space-between; gap:16px; }
+  #inspector .label{ color:rgba(242,240,234,0.55); font-family:var(--mono); font-size:10px; text-transform:uppercase;}
+  #inspector .value{ font-family:var(--mono); }
+  #inspector .user{ color:var(--accent); font-weight:600; font-size:13px; margin-bottom:4px; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<header class="hud">
+  <div class="title"><b>wplace tracker</b><span id="pixel-count">0 pixels loaded</span></div>
+  <div class="controls">
+    <button id="toggle-grid" class="active" title="Toggle Sector Blueprint Grid">Sector Grid</button>
+    <button id="toggle-wplace" class="active" title="Toggle official wplace PNGs">Wplace Base</button>
+    <button id="toggle-overlay" class="active" title="Toggle your discovered pixels">Discoveries</button>
+    
+    <div class="color-wrapper" title="Color for empty/erased pixels">
+      <span>Erased Color:</span>
+      <input type="color" id="erased-color-picker" value="#ff00ff">
+    </div>
+  </div>
+</header>
+
+<div id="status">
+  <span></span>
+  <span class="chip" id="zoom-chip">z—</span>
+</div>
+
+<div id="inspector"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* =========================================================================
+ * CONFIG 
+ * ===================================================================== */
+const CONFIG = {
+  WORKER_BASE_URL: "https://wplace-sync.dinisafonsopinto.workers.dev",
+  TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}`,
+  SECTOR_SIZE: 1000,        
+  START_PIXEL: [541552, 763721],
+  MAX_WPLACE_COORD: 10000000, // Hard limit to prevent infinite panning requests
+  MIN_ZOOM: -2,
+  MAX_ZOOM: 10,
+
+  normalizePixel(localKey, raw) {
+    const [x, y] = localKey.split('_').map(Number);
+    let color = "rgba(224,71,58,0.9)"; 
+    let erased = false;
+
+    if (raw.c === -1) {
+        erased = true;
+    } else if (raw.c !== null && raw.c !== undefined) {
+        color = '#' + raw.c.toString(16).padStart(6, '0');
+    }
+    return { x, y, username: raw.u || "unknown", color, erased };
+  }
+};
+
+/* =========================================================================
+ * MAP SETUP 
+ * ========================================================================= */
+// Enforce boundaries so the user cannot pan into infinity and trigger phantom tile requests
+const maxBounds = [
+    [-CONFIG.MAX_WPLACE_COORD, 0], // Bottom-Left
+    [0, CONFIG.MAX_WPLACE_COORD]   // Top-Right
+];
+
+const map = L.map("map", {
+  crs: L.CRS.Simple, 
+  center: [-CONFIG.START_PIXEL[1], CONFIG.START_PIXEL[0]],
+  zoom: 0, 
+  minZoom: CONFIG.MIN_ZOOM, // CRITICAL: Locks max zoom-out so the screen only holds ~4-6 sectors at once
+  maxZoom: CONFIG.MAX_ZOOM,
+  maxBounds: maxBounds,
+  maxBoundsViscosity: 1.0, // Rubber-band effect at the edges
+  zoomControl: false,
+});
+L.control.zoom({ position: "bottomright" }).addTo(map);
+
+/* =========================================================================
+ * LAYER 1: SECTOR BLUEPRINT GRID
+ * ========================================================================= */
+const SectorGridLayer = L.GridLayer.extend({
+  createTile(coords) {
+    const div = document.createElement("div");
+    div.className = "leaflet-tile";
+    div.style.width = "1000px";
+    div.style.height = "1000px";
+    div.style.borderTop = "1px solid rgba(255, 255, 255, 0.08)";
+    div.style.borderLeft = "1px solid rgba(255, 255, 255, 0.08)";
+    
+    if(coords.x >= 0 && coords.y >= 0) {
+      const label = document.createElement("div");
+      label.textContent = `Sector ${coords.x}, ${coords.y}`;
+      label.style.color = "rgba(255,255,255,0.15)";
+      label.style.fontFamily = "monospace";
+      label.style.fontSize = "24px";
+      label.style.padding = "12px";
+      div.appendChild(label);
+    }
+    return div;
+  }
+});
+const gridLayer = new SectorGridLayer({ 
+    tileSize: 1000, bounds: maxBounds, minZoom: CONFIG.MIN_ZOOM, maxZoom: CONFIG.MAX_ZOOM, minNativeZoom: 0, maxNativeZoom: 0 
+}).addTo(map);
+
+/* =========================================================================
+ * LAYER 2: WPLACE BASE MAP (Fixed)
+ * ========================================================================= */
+const wplaceLayer = L.tileLayer("https://backend.wplace.live/files/s0/tiles/{x}/{y}.png", {
+  tileSize: 1000,
+  bounds: maxBounds,
+  minZoom: CONFIG.MIN_ZOOM,
+  maxZoom: CONFIG.MAX_ZOOM,
+  minNativeZoom: 0, 
+  maxNativeZoom: 0, 
+  noWrap: true,
+  opacity: 0.75, // Dims the live map slightly so your discoveries pop
+  errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==' // Transparent fallback
+}).addTo(map);
+
+/* =========================================================================
+ * LAYER 3: DISCOVERY OVERLAY 
+ * ========================================================================= */
+let pixelCount = 0;
+const sectorCache = new Map(); 
+
+function fetchSector(tx, ty) {
+  const key = `${tx},${ty}`;
+  // Session caching guarantees the same sector is never fetched twice!
+  if (sectorCache.has(key)) return sectorCache.get(key);
+  
+  const p = fetch(CONFIG.TILE_ENDPOINT(tx, ty))
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((data) => {
+      const normalized = Object.entries(data).map(([k, v]) => CONFIG.normalizePixel(k, v));
+      pixelCount += normalized.length;
+      document.getElementById("pixel-count").textContent = `${pixelCount.toLocaleString()} pixels loaded`;
+      return normalized;
+    })
+    .catch(() => []);
+    
+  sectorCache.set(key, p);
+  return p;
+}
+
+const DiscoveryLayer = L.GridLayer.extend({
+  createTile(coords, done) {
+    const canvas = L.DomUtil.create("canvas", "leaflet-tile");
+    canvas.width = 1000; canvas.height = 1000;
+    const ctx = canvas.getContext("2d");
+
+    const tileKey = this._tileCoordsToKey(coords);
+    const validateAndDone = () => { if (this._tiles && this._tiles[tileKey]) done(null, canvas); };
+
+    if (coords.x < 0 || coords.y < 0) return validateAndDone();
+
+    fetchSector(coords.x, coords.y).then(pixels => {
+        if (!pixels || pixels.length === 0) return validateAndDone();
+        
+        const activeErasedColor = document.getElementById("erased-color-picker").value;
+
+        for (const p of pixels) {
+            ctx.fillStyle = p.erased ? activeErasedColor : p.color;
+            ctx.fillRect(p.x, p.y, 1, 1);
+        }
+        canvas._pixels = pixels;
+        validateAndDone();
+    });
+    return canvas;
+  }
+});
+
+const discoveryLayer = new DiscoveryLayer({ 
+    tileSize: 1000, bounds: maxBounds, minZoom: CONFIG.MIN_ZOOM, maxZoom: CONFIG.MAX_ZOOM, minNativeZoom: 0, maxNativeZoom: 0  
+}).addTo(map);
+
+document.getElementById("erased-color-picker").addEventListener("input", () => {
+    discoveryLayer.redraw();
+});
+
+/* =========================================================================
+ * INSPECTOR TOOLTIP
+ * ========================================================================= */
+const inspector = document.getElementById("inspector");
+
+map.on("mousemove", async (e) => {
+  const globalX = Math.floor(e.latlng.lng);
+  const globalY = Math.floor(-e.latlng.lat);
+  
+  if (globalX < 0 || globalY < 0) return;
+
+  const tx = Math.floor(globalX / CONFIG.SECTOR_SIZE);
+  const ty = Math.floor(globalY / CONFIG.SECTOR_SIZE);
+  const localX = globalX % CONFIG.SECTOR_SIZE;
+  const localY = globalY % CONFIG.SECTOR_SIZE;
+
+  const cachedSector = sectorCache.get(`${tx},${ty}`);
+  if (!cachedSector) { inspector.style.display = "none"; return; }
+
+  const pixels = await cachedSector;
+  const hit = pixels.find((p) => p.x === localX && p.y === localY);
+
+  if (!hit) { inspector.style.display = "none"; return; }
+  
+  inspector.innerHTML = `
+    <div class="user">${escapeHtml(hit.username)}</div>
+    <div class="row"><span class="label">Coords</span><span class="value">${globalX}, ${globalY}</span></div>
+    <div class="row"><span class="label">Sector</span><span class="value">${tx}, ${ty}</span></div>
+    ${hit.erased ? `<div class="row" style="margin-top:4px; color:${document.getElementById("erased-color-picker").value}; font-size:10px;">[ERASED PIXEL]</div>` : ""}
+  `;
+  inspector.style.display = "block";
+  inspector.style.left = e.originalEvent.pageX + 14 + "px";
+  inspector.style.top = e.originalEvent.pageY + 14 + "px";
+});
+
+map.on("mouseout", () => (inspector.style.display = "none"));
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+/* =========================================================================
+ * UI CHROME / TOGGLES
+ * ========================================================================= */
+function setupToggle(btnId, layer) {
+  document.getElementById(btnId).addEventListener("click", (e) => {
+    if (map.hasLayer(layer)) { 
+      map.removeLayer(layer); 
+      e.target.classList.remove("active"); 
+    } else { 
+      layer.addTo(map);
+      if (layer === gridLayer) gridLayer.bringToBack();
+      if (layer === wplaceLayer) wplaceLayer.bringToFront();
+      if (layer === discoveryLayer) discoveryLayer.bringToFront();
+      e.target.classList.add("active"); 
+    }
+  });
+}
+
+setupToggle("toggle-grid", gridLayer);
+setupToggle("toggle-wplace", wplaceLayer);
+setupToggle("toggle-overlay", discoveryLayer);
+
+function updateZoomChip() { document.getElementById("zoom-chip").textContent = `z${map.getZoom()}`; }
+map.on("zoomend", updateZoomChip); updateZoomChip();
+</script>
+</body>
+</html>
