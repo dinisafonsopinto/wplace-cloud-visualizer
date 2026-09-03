@@ -211,7 +211,7 @@ function fetchSector(tx, ty) {
     
     const lastFetched = localStorage.getItem(cacheKeyAge);
     const now = Date.now();
-    const maxCacheAge = 1000 * 60 * 60; // 1 Hour
+    const maxCacheAge = 1000 * 60 * 5; // 1 Hour
     
     if (!response || !lastFetched || (now - parseInt(lastFetched)) > maxCacheAge) {
       try {
