@@ -200,41 +200,47 @@ const sectorCache = new Map(); // Session RAM Cache
 function fetchSector(tx, ty) {
   const key = `${tx},${ty}`;
   
-  // 1. If it's already in RAM (this session), return it instantly
   if (sectorCache.has(key)) return sectorCache.get(key);
   
   const p = (async () => {
     const url = CONFIG.TILE_ENDPOINT(tx, ty);
     const cacheKeyAge = `wp_cache_time_${tx}_${ty}`;
     
-    // Open the browser's persistent disk cache
     const cache = await caches.open('wplace-visualizer-v1');
     let response = await cache.match(url);
     
     const lastFetched = localStorage.getItem(cacheKeyAge);
     const now = Date.now();
-    const maxCacheAge = 1000 * 60 * 60; // 1 Hour (in milliseconds)
+    const maxCacheAge = 1000 * 60 * 60; // 1 Hour
     
-    // 2. If it's NOT on disk, OR if it's older than 1 hour, fetch from Cloudflare
     if (!response || !lastFetched || (now - parseInt(lastFetched)) > maxCacheAge) {
-      console.log(`[Network] Fetching Sector ${tx}, ${ty} from Cloudflare...`);
-      response = await fetch(url);
-      
-      if (response.ok) {
-        // Save a clone of the payload to the user's hard drive
-        await cache.put(url, response.clone());
-        localStorage.setItem(cacheKeyAge, now.toString());
+      try {
+        // Wrapped in try/catch to handle CORS blocks caused by 503s
+        response = await fetch(url);
+        
+        if (response.ok) {
+          await cache.put(url, response.clone());
+          localStorage.setItem(cacheKeyAge, now.toString());
+        } else {
+          console.warn(`[Network] Sector ${tx}, ${ty} failed (Status: ${response.status})`);
+          return []; // Graceful fallback
+        }
+      } catch (err) {
+        console.error(`[Network] CORS or connection error on Sector ${tx}, ${ty}`);
+        return []; // Graceful fallback
       }
-    } else {
-      console.log(`[Disk Cache] Loaded Sector ${tx}, ${ty} locally.`);
     }
     
-    const data = response.ok ? await response.json() : {};
-    const normalized = Object.entries(data).map(([k, v]) => CONFIG.normalizePixel(k, v));
+    if (response && response.ok) {
+      const data = await response.json();
+      const normalized = Object.entries(data).map(([k, v]) => CONFIG.normalizePixel(k, v));
+      
+      pixelCount += normalized.length;
+      document.getElementById("pixel-count").textContent = `${pixelCount.toLocaleString()} pixels loaded`;
+      return normalized;
+    }
     
-    pixelCount += normalized.length;
-    document.getElementById("pixel-count").textContent = `${pixelCount.toLocaleString()} pixels loaded`;
-    return normalized;
+    return [];
   })();
     
   sectorCache.set(key, p);
