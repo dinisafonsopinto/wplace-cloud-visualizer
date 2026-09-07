@@ -14,7 +14,13 @@
   }
   *{ box-sizing:border-box; }
   html,body{ height:100%; margin:0; font-family:var(--sans); background:var(--paper); color:var(--ink); }
-  #map{ position:absolute; inset:0; background:#0e0e10; }
+  
+  #map{ 
+    position:absolute; inset:0; background-color:#0e0e10; 
+    background-image: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 100px 100px;
+    transition: background-color 0.2s ease;
+  }
 
   .leaflet-container{ font-family:var(--sans); }
   .leaflet-tile { image-rendering: pixelated; }
@@ -35,6 +41,7 @@
   .controls{
     pointer-events:auto; background:var(--panel-bg); color:var(--panel-fg);
     border-radius:2px; padding:6px; display:flex; gap:6px; align-items: center;
+    flex-wrap: wrap;
   }
   .controls button{
     all:unset; cursor:pointer; padding:7px 11px; font-size:12px;
@@ -45,12 +52,13 @@
 
   .color-wrapper { display: flex; align-items: center; gap: 6px; padding: 0 8px; border-left: 1px solid rgba(255,255,255,0.1); margin-left: 4px; }
   .color-wrapper span { font-size: 11px; color: rgba(242,240,234,0.6); }
-  #erased-color-picker {
+  input[type="color"] {
     -webkit-appearance: none; border: none; width: 22px; height: 22px; cursor: pointer;
     background: transparent; padding: 0;
   }
-  #erased-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
-  #erased-color-picker::-webkit-color-swatch { border: 1px solid rgba(255,255,255,0.3); border-radius: 2px; }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+  input[type="color"]::-webkit-color-swatch { border: 1px solid rgba(255,255,255,0.3); border-radius: 2px; }
+  input[type="range"] { width: 60px; cursor: pointer; margin-left: 2px; }
 
   #status{
     position:absolute; bottom:0; left:0; right:0; z-index:1000;
@@ -72,6 +80,47 @@
   #inspector .label{ color:rgba(242,240,234,0.55); font-family:var(--mono); font-size:10px; text-transform:uppercase;}
   #inspector .value{ font-family:var(--mono); }
   #inspector .user{ color:var(--accent); font-weight:600; font-size:13px; margin-bottom:4px; }
+
+  /* ---- Filter bar ---- */
+  .filter-wrapper{ display:flex; align-items:center; gap:6px; padding:0 8px; border-left:1px solid rgba(255,255,255,0.1); margin-left:4px; }
+  .filter-wrapper input[type="text"]{
+    all:unset; width:110px; background:rgba(255,255,255,0.08); color:var(--panel-fg);
+    font-size:12px; padding:5px 8px; border-radius:2px; font-family:var(--sans);
+  }
+  .filter-wrapper option{ background:var(--panel-bg); color:var(--panel-fg); }
+  .filter-wrapper input[type="text"]::placeholder{ color:rgba(242,240,234,0.4); }
+  .filter-wrapper select{
+    background:rgba(255,255,255,0.08); color:var(--panel-fg); border:none; font-size:12px;
+    padding:5px 6px; border-radius:2px; font-family:var(--sans); max-width:110px;
+  }
+  .filter-wrapper label{ display:flex; align-items:center; gap:4px; font-size:11px; color:rgba(242,240,234,0.6); cursor:pointer; }
+  #clear-filters{ all:unset; cursor:pointer; padding:5px 8px; font-size:11px; color:rgba(242,240,234,0.5); }
+  #clear-filters:hover{ color:#fff; }
+
+  /* ---- Scan panel ---- */
+  #scan-panel{
+    position:absolute; top:60px; right:14px; z-index:1100;
+    background:var(--panel-bg); color:var(--panel-fg); border-radius:2px;
+    width:280px; max-height:70vh; overflow-y:auto; font-size:12px; display:none;
+  }
+  #scan-panel .sp-header{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 12px; border-bottom:1px solid rgba(255,255,255,0.1); font-family:var(--mono);
+  }
+  #scan-panel .sp-header b{ font-size:12px; }
+  #scan-panel .sp-close{ cursor:pointer; color:rgba(242,240,234,0.5); }
+  #scan-panel .sp-close:hover{ color:#fff; }
+  #scan-panel .sp-meta{ padding:8px 12px; color:rgba(242,240,234,0.55); font-family:var(--mono); font-size:10px; }
+  #scan-results{ padding:0 6px 8px; }
+  .sp-row{
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:6px 8px; border-radius:2px; cursor:pointer;
+  }
+  .sp-row:hover{ background:rgba(255,255,255,0.08); }
+  .sp-row .sp-name{ color:var(--accent); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sp-row .sp-count{ font-family:var(--mono); color:rgba(242,240,234,0.7); flex-shrink:0; }
+  .sp-empty{ padding:14px 12px; color:rgba(242,240,234,0.5); font-style:italic; }
+
 </style>
 </head>
 <body>
@@ -82,15 +131,44 @@
   <div class="title"><b>wplace tracker</b><span id="pixel-count">0 pixels loaded</span></div>
   <div class="controls">
     <button id="toggle-grid" class="active" title="Toggle Sector Blueprint Grid">Sector Grid</button>
-    <button id="toggle-wplace" class="active" title="Toggle official wplace PNGs">Wplace Base</button>
+    <button id="toggle-wplace" title="Toggle official wplace PNGs">Wplace Base</button>
     <button id="toggle-overlay" class="active" title="Toggle your discovered pixels">Discoveries</button>
     
-    <div class="color-wrapper" title="Color for empty/erased pixels">
-      <span>Erased Color:</span>
-      <input type="color" id="erased-color-picker" value="#ff00ff">
+    <div class="color-wrapper" title="Background Color">
+      <span>BG:</span>
+      <input type="color" id="bg-color-picker" value="#0e0e10">
     </div>
+
+    <div class="color-wrapper" title="Color & Opacity for erased pixels">
+      <span>Erased:</span>
+      <input type="color" id="erased-color-picker" value="#ff00ff">
+      <input type="range" id="erased-opacity-slider" min="0" max="1" step="0.05" value="1" title="Erased Pixel Opacity">
+    </div>
+
+    <div class="filter-wrapper">
+      <input type="text" id="filter-username" placeholder="Filter by author…" />
+      <select id="filter-alliance">
+        <option value="">Any alliance</option>
+      </select>
+      <label title="Only match this exact color">
+        <input type="checkbox" id="color-filter-toggle" />
+        <input type="color" id="color-filter-picker" value="#e0473a">
+      </label>
+      <button id="clear-filters" title="Clear all filters">Clear</button>
+    </div>
+
+    <button id="tool-polygon" title="Draw polygon to scan loaded sectors">Select Area</button>
   </div>
 </header>
+
+<div id="scan-panel">
+  <div class="sp-header">
+    <b>Scan Results</b>
+    <span class="sp-close" id="scan-close">✕</span>
+  </div>
+  <div class="sp-meta" id="scan-meta">No scan run yet.</div>
+  <div id="scan-results"></div>
+</div>
 
 <div id="status">
   <span></span>
@@ -109,8 +187,8 @@ const CONFIG = {
   TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}`,
   SECTOR_SIZE: 1000,        
   START_PIXEL: [541552, 763721],
-  MAX_WPLACE_COORD: 10000000, // Hard limit to prevent infinite panning requests
-  MIN_ZOOM: -2,
+  MAX_WPLACE_COORD: 10000000, 
+  MIN_ZOOM: -4, // Safely capped to prevent overwhelming grid rendering
   MAX_ZOOM: 10,
 
   normalizePixel(localKey, raw) {
@@ -123,33 +201,43 @@ const CONFIG = {
     } else if (raw.c !== null && raw.c !== undefined) {
         color = '#' + raw.c.toString(16).padStart(6, '0');
     }
-    return { x, y, username: raw.u || "unknown", color, erased };
+    
+    let username = "unknown";
+    let alliance = null;
+    
+    if (raw.a !== undefined && authorMap[raw.a]) {
+        username = authorMap[raw.a].n;
+        alliance = authorMap[raw.a].al;
+    } else if (raw.u) {
+        username = raw.u; 
+    }
+
+    return { x, y, username, alliance, color, erased };
   }
 };
 
 /* =========================================================================
  * MAP SETUP 
  * ========================================================================= */
-// Enforce boundaries so the user cannot pan into infinity and trigger phantom tile requests
 const maxBounds = [
-    [-CONFIG.MAX_WPLACE_COORD, 0], // Bottom-Left
-    [0, CONFIG.MAX_WPLACE_COORD]   // Top-Right
+    [-CONFIG.MAX_WPLACE_COORD, 0], 
+    [0, CONFIG.MAX_WPLACE_COORD]   
 ];
 
 const map = L.map("map", {
   crs: L.CRS.Simple, 
   center: [-CONFIG.START_PIXEL[1], CONFIG.START_PIXEL[0]],
   zoom: 0, 
-  minZoom: CONFIG.MIN_ZOOM, // CRITICAL: Locks max zoom-out so the screen only holds ~4-6 sectors at once
+  minZoom: CONFIG.MIN_ZOOM, 
   maxZoom: CONFIG.MAX_ZOOM,
   maxBounds: maxBounds,
-  maxBoundsViscosity: 1.0, // Rubber-band effect at the edges
+  maxBoundsViscosity: 1.0, 
   zoomControl: false,
 });
 L.control.zoom({ position: "bottomright" }).addTo(map);
 
 /* =========================================================================
- * LAYER 1: SECTOR BLUEPRINT GRID
+ * LAYER 1: SECTOR BLUEPRINT GRID (High Visibility)
  * ========================================================================= */
 const SectorGridLayer = L.GridLayer.extend({
   createTile(coords) {
@@ -157,13 +245,15 @@ const SectorGridLayer = L.GridLayer.extend({
     div.className = "leaflet-tile";
     div.style.width = "1000px";
     div.style.height = "1000px";
-    div.style.borderTop = "1px solid rgba(255, 255, 255, 0.08)";
-    div.style.borderLeft = "1px solid rgba(255, 255, 255, 0.08)";
+    div.style.borderTop = "2px solid rgba(255, 255, 255, 0.4)";
+    div.style.borderLeft = "2px solid rgba(255, 255, 255, 0.4)";
     
     if(coords.x >= 0 && coords.y >= 0) {
       const label = document.createElement("div");
       label.textContent = `Sector ${coords.x}, ${coords.y}`;
-      label.style.color = "rgba(255,255,255,0.15)";
+      label.style.color = "rgba(255,255,255,0.9)";
+      label.style.backgroundColor = "rgba(0,0,0,0.6)";
+      label.style.display = "inline-block";
       label.style.fontFamily = "monospace";
       label.style.fontSize = "24px";
       label.style.padding = "12px";
@@ -177,7 +267,7 @@ const gridLayer = new SectorGridLayer({
 }).addTo(map);
 
 /* =========================================================================
- * LAYER 2: WPLACE BASE MAP (Fixed)
+ * LAYER 2: WPLACE BASE MAP 
  * ========================================================================= */
 const wplaceLayer = L.tileLayer("https://backend.wplace.live/files/s0/tiles/{x}/{y}.png", {
   tileSize: 1000,
@@ -187,15 +277,48 @@ const wplaceLayer = L.tileLayer("https://backend.wplace.live/files/s0/tiles/{x}/
   minNativeZoom: 0, 
   maxNativeZoom: 0, 
   noWrap: true,
-  opacity: 0.75, // Dims the live map slightly so your discoveries pop
-  errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==' // Transparent fallback
-}).addTo(map);
+  opacity: 0.75, 
+  updateWhenIdle: true,
+  keepBuffer: 1, 
+  errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==' 
+}); // <--- Not added to map by default
 
 /* =========================================================================
- * LAYER 3: DISCOVERY OVERLAY (With Native Browser Caching)
+ * LAYER 3: DISCOVERY OVERLAY 
  * ========================================================================= */
- let pixelCount = 0;
-const sectorCache = new Map(); // Session RAM Cache
+let pixelCount = 0;
+const sectorCache = new Map(); 
+
+let authorsPromise = null;
+let authorMap = {}; 
+
+function getAuthors() {
+    if (!authorsPromise) {
+        authorsPromise = fetch(`${CONFIG.WORKER_BASE_URL}/authors`)
+            .then(r => r.json())
+            .catch(e => {
+                console.warn("[Network] Failed to fetch authors map", e);
+                return {};
+            });
+    }
+    return authorsPromise;
+}
+
+function refreshAllianceDropdown() {
+  const select = document.getElementById("filter-alliance");
+  const current = select.value;
+  
+  const uniqueAlliances = new Set();
+  Object.values(authorMap).forEach(author => {
+      if (author.al) uniqueAlliances.add(author.al);
+  });
+  
+  const alliances = Array.from(uniqueAlliances).sort((a, b) => a.localeCompare(b));
+  select.innerHTML = `<option value="">Any alliance</option><option value="no-unknown-alliance-users">No alliance/Unknown alliance</option>` +
+    alliances.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("");
+  
+  if (alliances.includes(current)) select.value = current;
+}
 
 function fetchSector(tx, ty) {
   const key = `${tx},${ty}`;
@@ -211,27 +334,25 @@ function fetchSector(tx, ty) {
     
     const lastFetched = localStorage.getItem(cacheKeyAge);
     const now = Date.now();
-    const maxCacheAge = 1000 * 60 * 5; // 1 Hour
+    const maxCacheAge = 1000 * 60 * 30; // 30 Minutes
     
     if (!response || !lastFetched || (now - parseInt(lastFetched)) > maxCacheAge) {
       try {
-        // Wrapped in try/catch to handle CORS blocks caused by 503s
         response = await fetch(url);
-        
         if (response.ok) {
           await cache.put(url, response.clone());
           localStorage.setItem(cacheKeyAge, now.toString());
         } else {
-          console.warn(`[Network] Sector ${tx}, ${ty} failed (Status: ${response.status})`);
-          return []; // Graceful fallback
+          return []; 
         }
       } catch (err) {
-        console.error(`[Network] CORS or connection error on Sector ${tx}, ${ty}`);
-        return []; // Graceful fallback
+        return []; 
       }
     }
     
     if (response && response.ok) {
+      authorMap = await getAuthors(); 
+      refreshAllianceDropdown(); // Dynamically update dropdown on fetch
       const data = await response.json();
       const normalized = Object.entries(data).map(([k, v]) => CONFIG.normalizePixel(k, v));
       
@@ -245,6 +366,65 @@ function fetchSector(tx, ty) {
     
   sectorCache.set(key, p);
   return p;
+}
+
+
+/* =========================================================================
+ * FILTERS
+ * ========================================================================= */
+const filterState = {
+  username: "",  
+  color: null,   
+  alliance: "",  
+};
+
+function filterIsActive() {
+  return !!(filterState.username || filterState.color || filterState.alliance);
+}
+
+function pixelMatchesFilter(p) {
+  if (filterState.username && !p.username.toLowerCase().includes(filterState.username)) return false;
+  if (filterState.color && (p.erased || p.color.toLowerCase() !== filterState.color.toLowerCase())) return false;
+  if (filterState.alliance && filterState.alliance === "no-unknown-alliance-users" && p.username !== "Blank / Unknown" && !p.alliance) return true;
+  if (filterState.alliance && p.alliance !== filterState.alliance) return false;
+  return true;
+}
+
+function wireFilterControls() {
+  const usernameInput = document.getElementById("filter-username");
+  const allianceSelect = document.getElementById("filter-alliance");
+  const colorToggle = document.getElementById("color-filter-toggle");
+  const colorPicker = document.getElementById("color-filter-picker");
+  const clearBtn = document.getElementById("clear-filters");
+
+  let debounceTimer = null;
+  usernameInput.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      filterState.username = usernameInput.value.trim().toLowerCase();
+      discoveryLayer.redraw();
+    }, 500);
+  });
+
+  allianceSelect.addEventListener("change", () => {
+    filterState.alliance = allianceSelect.value;
+    discoveryLayer.redraw();
+  });
+
+  const applyColorFilter = () => {
+    filterState.color = colorToggle.checked ? colorPicker.value : null;
+    discoveryLayer.redraw();
+  };
+  colorToggle.addEventListener("change", applyColorFilter);
+  colorPicker.addEventListener("input", () => { if (colorToggle.checked) applyColorFilter(); });
+
+  clearBtn.addEventListener("click", () => {
+    usernameInput.value = "";
+    allianceSelect.value = "";
+    colorToggle.checked = false;
+    filterState.username = ""; filterState.color = null; filterState.alliance = "";
+    discoveryLayer.redraw();
+  });
 }
 
 const DiscoveryLayer = L.GridLayer.extend({
@@ -262,11 +442,25 @@ const DiscoveryLayer = L.GridLayer.extend({
         if (!pixels || pixels.length === 0) return validateAndDone();
         
         const activeErasedColor = document.getElementById("erased-color-picker").value;
+        const activeErasedOpacity = parseFloat(document.getElementById("erased-opacity-slider").value);
+        const filtering = filterIsActive();
 
         for (const p of pixels) {
-            ctx.fillStyle = p.erased ? activeErasedColor : p.color;
-            ctx.fillRect(p.x, p.y, 1, 1);
+            const baseColor = p.erased ? activeErasedColor : p.color;
+            
+            if (filtering && !pixelMatchesFilter(p)) {
+                ctx.globalAlpha = 0.12;
+            } else if (p.erased) {
+                ctx.globalAlpha = activeErasedOpacity;
+            } else {
+                ctx.globalAlpha = 1;
+            }
+
+            ctx.fillStyle = baseColor;
+            // Strict 1x1 drawing to prevent checkerboard overlaps
+            ctx.fillRect(p.x, p.y, 1, 1); 
         }
+        ctx.globalAlpha = 1;
         canvas._pixels = pixels;
         validateAndDone();
     });
@@ -277,17 +471,34 @@ const DiscoveryLayer = L.GridLayer.extend({
 const discoveryLayer = new DiscoveryLayer({ 
   tileSize: 1000, 
   bounds: maxBounds, 
-  minZoom: 0, 
-  maxZoom: 10, 
+  minZoom: CONFIG.MIN_ZOOM, 
+  maxZoom: CONFIG.MAX_ZOOM, 
   minNativeZoom: 0, 
   maxNativeZoom: 0,
   updateWhenIdle: true,
-  keepBuffer: 2
+  keepBuffer: 1
 }).addTo(map);
 
-document.getElementById("erased-color-picker").addEventListener("input", () => {
-    discoveryLayer.redraw();
+// Wire Background Color changes
+document.getElementById("bg-color-picker").addEventListener("input", (e) => {
+    document.getElementById("map").style.backgroundColor = e.target.value;
 });
+
+// Wire Erased Color/Opacity changes on a 500ms debounce
+let redrawTimer = null;
+const redrawDiscovery = () => {
+    clearTimeout(redrawTimer);
+    redrawTimer = setTimeout(() => {
+        discoveryLayer.redraw();
+    }, 500);
+}
+// const redrawDiscovery = () => {
+//     discoveryLayer.redraw();
+// }
+document.getElementById("erased-color-picker").addEventListener("input", redrawDiscovery);
+document.getElementById("erased-opacity-slider").addEventListener("input", redrawDiscovery);
+
+wireFilterControls();
 
 /* =========================================================================
  * INSPECTOR TOOLTIP
@@ -315,6 +526,7 @@ map.on("mousemove", async (e) => {
   
   inspector.innerHTML = `
     <div class="user">${escapeHtml(hit.username)}</div>
+    ${hit.alliance ? `<div class="row" style="margin-bottom:4px;"><span class="label">Alliance</span><span class="value" style="color:#aaa;">${escapeHtml(hit.alliance)}</span></div>` : ""}
     <div class="row"><span class="label">Coords</span><span class="value">${globalX}, ${globalY}</span></div>
     <div class="row"><span class="label">Sector</span><span class="value">${tx}, ${ty}</span></div>
     ${hit.erased ? `<div class="row" style="margin-top:4px; color:${document.getElementById("erased-color-picker").value}; font-size:10px;">[ERASED PIXEL]</div>` : ""}
@@ -356,6 +568,127 @@ setupToggle("toggle-overlay", discoveryLayer);
 
 function updateZoomChip() { document.getElementById("zoom-chip").textContent = `z${map.getZoom()}`; }
 map.on("zoomend", updateZoomChip); updateZoomChip();
+
+/* =========================================================================
+ * POLYGON SCAN TOOL
+ * ========================================================================= */
+const scanPanel = document.getElementById("scan-panel");
+const scanMeta = document.getElementById("scan-meta");
+const scanResultsEl = document.getElementById("scan-results");
+
+let scanPolygonVertices = [];
+let isDrawingPolygon = false;
+let polygonLayer = L.layerGroup().addTo(map);
+let polygonPath = null;
+
+document.getElementById("scan-close").addEventListener("click", () => {
+  scanPanel.style.display = "none";
+  polygonLayer.clearLayers();
+});
+
+document.getElementById("tool-polygon").addEventListener("click", (e) => {
+  isDrawingPolygon = !isDrawingPolygon;
+  e.target.classList.toggle("active", isDrawingPolygon);
+  
+  if (isDrawingPolygon) {
+      document.getElementById("map").style.cursor = "crosshair";
+      scanPolygonVertices = [];
+      polygonLayer.clearLayers();
+      polygonPath = L.polygon([], { color: '#00ff00', fillOpacity: 0.2, weight: 2, interactive: false }).addTo(polygonLayer);
+      
+      scanMeta.textContent = "Click map to draw shape. Click button again to close and scan.";
+      scanPanel.style.display = "block";
+      scanResultsEl.innerHTML = "";
+  } else {
+      document.getElementById("map").style.cursor = "";
+      if (scanPolygonVertices.length >= 3) {
+          runScan(); 
+      } else {
+          scanPanel.style.display = "none";
+          polygonLayer.clearLayers();
+      }
+  }
+});
+
+map.on("click", (e) => {
+  if (!isDrawingPolygon) return;
+  const globalX = Math.floor(e.latlng.lng);
+  const globalY = Math.floor(-e.latlng.lat);
+  scanPolygonVertices.push({ x: globalX, y: globalY });
+  polygonPath.addLatLng(e.latlng);
+  L.circleMarker(e.latlng, { radius: 4, color: '#00ff00', fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(polygonLayer);
+});
+
+function isPointInPolygon(x, y, vertices) {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+      const xi = vertices[i].x, yi = vertices[i].y;
+      const xj = vertices[j].x, yj = vertices[j].y;
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+async function runScan() {
+  scanMeta.textContent = "Scanning bounded area...";
+  scanResultsEl.innerHTML = "";
+
+  const entries = Array.from(sectorCache.entries());
+  const sectorResults = await Promise.all(entries.map(([key, p]) => p.catch(() => [])));
+
+  let boundedPixels = 0;
+  const matchCounts = new Map(); 
+  const groupBy = filterState.alliance ? "alliance" : "username";
+
+  entries.forEach(([key], i) => {
+    const pixels = sectorResults[i] || [];
+    const [tx, ty] = key.split(",").map(Number);
+
+    for (const p of pixels) {
+      const globalX = tx * CONFIG.SECTOR_SIZE + p.x;
+      const globalY = ty * CONFIG.SECTOR_SIZE + p.y;
+      
+      if (!isPointInPolygon(globalX, globalY, scanPolygonVertices)) continue;
+      
+      boundedPixels++;
+      if (!pixelMatchesFilter(p)) continue;
+      
+      const label = groupBy === "alliance" ? (p.alliance || "(no alliance)") : p.username;
+      
+      if (!matchCounts.has(label)) matchCounts.set(label, { count: 0, sumX: 0, sumY: 0 });
+      const g = matchCounts.get(label);
+      g.count++; g.sumX += globalX; g.sumY += globalY;
+    }
+  });
+
+  const sortedGroups = Array.from(matchCounts.entries()).sort((a, b) => b[1].count - a[1].count);
+
+  scanMeta.textContent = `${boundedPixels.toLocaleString()} total pixels found in bounds` +
+    (filterIsActive() ? ` • ${sortedGroups.reduce((s, [, g]) => s + g.count, 0).toLocaleString()} matched` : "");
+
+  if (sortedGroups.length === 0) {
+    scanResultsEl.innerHTML = `<div class="sp-empty">No matches found inside the polygon.</div>`;
+    return;
+  }
+
+  scanResultsEl.innerHTML = sortedGroups.map(([label, g], i) => `
+    <div class="sp-row" data-idx="${i}">
+      <span class="sp-name">${escapeHtml(label)}</span>
+      <span class="sp-count">${g.count.toLocaleString()}px</span>
+    </div>
+  `).join("");
+
+  scanResultsEl.querySelectorAll(".sp-row").forEach((row) => {
+    const i = Number(row.dataset.idx);
+    const [, g] = sortedGroups[i];
+    row.addEventListener("click", () => {
+      const avgX = g.sumX / g.count;
+      const avgY = g.sumY / g.count;
+      map.flyTo([-avgY, avgX], Math.max(map.getZoom(), 3));
+    });
+  });
+}
 </script>
 </body>
 </html>
