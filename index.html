@@ -184,7 +184,7 @@
  * ===================================================================== */
 const CONFIG = {
   WORKER_BASE_URL: "https://wplace-sync.dinisafonsopinto.workers.dev",
-  TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}`,
+  TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}?source=web`,
   SECTOR_SIZE: 1000,        
   START_PIXEL: [541552, 763721],
   MAX_WPLACE_COORD: 10000000, 
