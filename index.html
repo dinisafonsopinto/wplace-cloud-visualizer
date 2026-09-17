@@ -352,9 +352,17 @@ function fetchSector(tx, ty) {
     
     if (response && response.ok) {
       authorMap = await getAuthors(); 
-      refreshAllianceDropdown(); // Dynamically update dropdown on fetch
-      const data = await response.json();
-      const normalized = Object.entries(data).map(([k, v]) => CONFIG.normalizePixel(k, v));
+      refreshAllianceDropdown();
+
+      const rawArray = await response.json(); // Now an array of rows
+      const mergedData = {};
+      
+      // Let the browser's powerful CPU handle the merging
+      for (const row of rawArray) {
+        if (row.data) Object.assign(mergedData, JSON.parse(row.data));
+      }
+
+      const normalized = Object.entries(mergedData).map(([k, v]) => CONFIG.normalizePixel(k, v));
       
       pixelCount += normalized.length;
       document.getElementById("pixel-count").textContent = `${pixelCount.toLocaleString()} pixels loaded`;
