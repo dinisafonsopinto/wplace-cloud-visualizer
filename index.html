@@ -458,31 +458,41 @@ const DiscoveryLayer = L.GridLayer.extend({
 
     if (coords.x < 0 || coords.y < 0) return validateAndDone();
 
-    fetchSector(coords.x, coords.y).then(pixels => {
-        if (!pixels || pixels.length === 0) return validateAndDone();
+    fetchSector(coords.x, coords.y).then(async pixels => {
+      if (!pixels || pixels.length === 0) return validateAndDone();
+
+      const activeErasedColor = document.getElementById("erased-color-picker").value;
+      const activeErasedOpacity = parseFloat(document.getElementById("erased-opacity-slider").value);
+      const filtering = filterIsActive();
+
+      const CHUNK_SIZE = 15000; // Draw 15k pixels per frame
+
+      for (let i = 0; i < pixels.length; i += CHUNK_SIZE) {
+        const chunk = pixels.slice(i, i + CHUNK_SIZE);
         
-        const activeErasedColor = document.getElementById("erased-color-picker").value;
-        const activeErasedOpacity = parseFloat(document.getElementById("erased-opacity-slider").value);
-        const filtering = filterIsActive();
+        for (const p of chunk) {
+          const baseColor = p.erased ? activeErasedColor : p.color;
 
-        for (const p of pixels) {
-            const baseColor = p.erased ? activeErasedColor : p.color;
-            
-            if (filtering && !pixelMatchesFilter(p)) {
-                ctx.globalAlpha = 0.12;
-            } else if (p.erased) {
-                ctx.globalAlpha = activeErasedOpacity;
-            } else {
-                ctx.globalAlpha = 1;
-            }
+          if (filtering && !pixelMatchesFilter(p)) {
+              ctx.globalAlpha = 0.12;
+          } else if (p.erased) {
+              ctx.globalAlpha = activeErasedOpacity;
+          } else {
+              ctx.globalAlpha = 1;
+          }
 
-            ctx.fillStyle = baseColor;
-            // Strict 1x1 drawing to prevent checkerboard overlaps
-            ctx.fillRect(p.x, p.y, 1, 1); 
+          ctx.fillStyle = baseColor;
+          // Strict 1x1 drawing to prevent checkerboard overlaps
+          ctx.fillRect(p.x, p.y, 1, 1); 
         }
-        ctx.globalAlpha = 1;
-        canvas._pixels = pixels;
-        validateAndDone();
+
+        // Yield to the browser's paint cycle before drawing the next chunk
+        await new Promise(r => requestAnimationFrame(r));
+      }
+
+      ctx.globalAlpha = 1;
+      canvas._pixels = pixels;
+      validateAndDone();
     });
     return canvas;
   }
