@@ -354,7 +354,7 @@ function fetchSector(tx, ty) {
       authorMap = await getAuthors(); 
       refreshAllianceDropdown();
 
-      const rawArray = await response.json(); // Now an array of rows
+      const rawData = await response.json(); 
       const mergedData = {};
       
       // Let the browser's powerful CPU handle the merging
@@ -362,7 +362,19 @@ function fetchSector(tx, ty) {
         if (row.data) Object.assign(mergedData, JSON.parse(row.data));
       }
 
-      const normalized = Object.entries(mergedData).map(([k, v]) => CONFIG.normalizePixel(k, v));
+      // Time-sliced normalization to prevent UI freezing
+      const entries = Object.entries(mergedData);
+      const normalized = [];
+      const CHUNK_SIZE = 15000; // Process 15k pixels at a time
+      
+      for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+        const chunk = entries.slice(i, i + CHUNK_SIZE);
+        for (const [k, v] of chunk) {
+          normalized.push(CONFIG.normalizePixel(k, v));
+        }
+        // Yield to the browser's event loop
+        await new Promise(r => setTimeout(r, 0)); 
+      }
       
       pixelCount += normalized.length;
       document.getElementById("pixel-count").textContent = `${pixelCount.toLocaleString()} pixels loaded`;
