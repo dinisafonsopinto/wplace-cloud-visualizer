@@ -320,66 +320,81 @@ function refreshAllianceDropdown() {
   if (alliances.includes(current)) select.value = current;
 }
 
+// Global lock that resolves immediately for the first request
+let sectorFetchLock = Promise.resolve();
+
 function fetchSector(tx, ty) {
   const key = `${tx},${ty}`;
   
+  // If we already queued or fetched this sector, return it immediately
   if (sectorCache.has(key)) return sectorCache.get(key);
   
-  const p = (async () => {
-    const url = CONFIG.TILE_ENDPOINT(tx, ty);
-    const cacheKeyAge = `wp_cache_time_${tx}_${ty}`;
+  // 2. Wrap the execution in a Promise that waits its turn in the chain
+  const p = new Promise((resolve) => {
     
-    const cache = await caches.open('wplace-visualizer-v1');
-    let response = await cache.match(url);
-    
-    const lastFetched = localStorage.getItem(cacheKeyAge);
-    const now = Date.now();
-    const maxCacheAge = 1000 * 60 * 30; // 30 Minutes
-    
-    if (!response || !lastFetched || (now - parseInt(lastFetched)) > maxCacheAge) {
+    // 3. Chain the actual fetch/parse logic onto the global lock
+    sectorFetchLock = sectorFetchLock.then(async () => {
       try {
-        response = await fetch(url);
-        if (response.ok) {
-          await cache.put(url, response.clone());
-          localStorage.setItem(cacheKeyAge, now.toString());
-        } else {
-          return []; 
+        const url = CONFIG.TILE_ENDPOINT(tx, ty);
+        const cacheKeyAge = `wp_cache_time_${tx}_${ty}`;
+        
+        const cache = await caches.open('wplace-visualizer-v1');
+        let response = await cache.match(url);
+        
+        const lastFetched = localStorage.getItem(cacheKeyAge);
+        const now = Date.now();
+        const maxCacheAge = 1000 * 60 * 30; // 30 Minutes
+        
+        if (!response || !lastFetched || (now - parseInt(lastFetched)) > maxCacheAge) {
+          try {
+            response = await fetch(url);
+            if (response.ok) {
+              await cache.put(url, response.clone());
+              localStorage.setItem(cacheKeyAge, now.toString());
+            } else {
+              return resolve([]); 
+            }
+          } catch (err) {
+            return resolve([]); 
+          }
         }
+        
+        if (response && response.ok) {
+          authorMap = await getAuthors(); 
+          refreshAllianceDropdown();
+          
+          const rawData = await response.json(); 
+          
+          // Time-sliced normalization inside the lock
+          const entries = Object.entries(rawData);
+          const normalized = [];
+          const CHUNK_SIZE = 15000; 
+          
+          for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+            const chunk = entries.slice(i, i + CHUNK_SIZE);
+            for (const [k, v] of chunk) {
+              normalized.push(CONFIG.normalizePixel(k, v));
+            }
+            // Yield to the browser so panning remains smooth
+            await new Promise(r => setTimeout(r, 0)); 
+          }
+          
+          pixelCount += normalized.length;
+          document.getElementById("pixel-count").textContent = `${pixelCount.toLocaleString()} pixels loaded`;
+          return resolve(normalized);
+        }
+        
+        resolve([]);
       } catch (err) {
-        return []; 
+        console.error(`Failed to process sector ${tx}, ${ty}:`, err);
+        resolve([]);
       }
-    }
-    
-    if (response && response.ok) {
-      authorMap = await getAuthors(); 
-      refreshAllianceDropdown();
-
-      const rawData = await response.json(); 
-
-      const entries = Object.entries(rawData);
-      const normalized = [];
-      const CHUNK_SIZE = 15000; 
-      
-      for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
-        const chunk = entries.slice(i, i + CHUNK_SIZE);
-        for (const [k, v] of chunk) {
-          normalized.push(CONFIG.normalizePixel(k, v));
-        }
-        await new Promise(r => setTimeout(r, 0)); 
-      }
-      
-      pixelCount += normalized.length;
-      document.getElementById("pixel-count").textContent = `${pixelCount.toLocaleString()} pixels loaded`;
-      return normalized;
-    }
-    
-    return [];
-  })();
+    }).catch(() => resolve([])); // Ensure the lock never breaks permanently
+  });
     
   sectorCache.set(key, p);
   return p;
 }
-
 
 /* =========================================================================
  * FILTERS
