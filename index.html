@@ -355,24 +355,16 @@ function fetchSector(tx, ty) {
       refreshAllianceDropdown();
 
       const rawData = await response.json(); 
-      const mergedData = {};
-      
-      // Let the browser's powerful CPU handle the merging
-      for (const row of rawArray) {
-        if (row.data) Object.assign(mergedData, JSON.parse(row.data));
-      }
 
-      // Time-sliced normalization to prevent UI freezing
-      const entries = Object.entries(mergedData);
+      const entries = Object.entries(rawData);
       const normalized = [];
-      const CHUNK_SIZE = 15000; // Process 15k pixels at a time
+      const CHUNK_SIZE = 15000; 
       
       for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
         const chunk = entries.slice(i, i + CHUNK_SIZE);
         for (const [k, v] of chunk) {
           normalized.push(CONFIG.normalizePixel(k, v));
         }
-        // Yield to the browser's event loop
         await new Promise(r => setTimeout(r, 0)); 
       }
       
