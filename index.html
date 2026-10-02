@@ -179,6 +179,22 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+alert("I am currently migrating the wplace pixel tracker to a new design. This website will be broken for a while. An announcement will be made in Soularia's discord server when the migration is complete.");
+
+let colorsPromise = null;
+let colorMap = {};
+
+function getColors() {
+    if (!colorsPromise) {
+        colorsPromise = fetch(`${CONFIG.WORKER_BASE_URL}/colors`)
+            .then(r => r.json())
+            .catch(e => {
+                console.warn("[Network] Failed to fetch colors map", e);
+                return {};
+            });
+    }
+    return colorsPromise;
+}
 /* =========================================================================
  * CONFIG 
  * ===================================================================== */
@@ -193,22 +209,30 @@ const CONFIG = {
 
   normalizePixel(localKey, raw) {
     const [x, y] = localKey.split('_').map(Number);
+    
+    const isArray = Array.isArray(raw);
+    const rawA = isArray ? raw[0] : raw.a;
+    const rawC = isArray ? raw[1] : raw.c;
+
     let color = "rgba(224,71,58,0.9)"; 
     let erased = false;
 
-    if (raw.c === -1) {
+    if (rawC === -1) {
         erased = true;
-    } else if (raw.c !== null && raw.c !== undefined) {
-        color = '#' + raw.c.toString(16).padStart(6, '0');
+    } else if (rawC !== null && rawC !== undefined) {
+        // If rawC <= 255, it is almost certainly a mapped ID.
+        // Otherwise, fallback to reading it as a legacy 24-bit integer.
+        const realColor = rawC <= 255 && colorMap[rawC] !== undefined ? colorMap[rawC] : rawC;
+        color = '#' + realColor.toString(16).padStart(6, '0');
     }
     
     let username = "unknown";
     let alliance = null;
     
-    if (raw.a !== undefined && authorMap[raw.a]) {
-        username = authorMap[raw.a].n;
-        alliance = authorMap[raw.a].al;
-    } else if (raw.u) {
+    if (rawA !== undefined && authorMap[rawA]) {
+        username = authorMap[rawA].n;
+        alliance = authorMap[rawA].al;
+    } else if (!isArray && raw.u) {
         username = raw.u; 
     }
 
@@ -360,7 +384,9 @@ function fetchSector(tx, ty) {
         }
         
         if (response && response.ok) {
-          authorMap = await getAuthors(); 
+          const [fetchedAuthors, fetchedColors] = await Promise.all([getAuthors(), getColors()]);
+          authorMap = fetchedAuthors;
+          colorMap = fetchedColors;
           refreshAllianceDropdown();
           
           const rawData = await response.json(); 
