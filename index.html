@@ -384,11 +384,6 @@ function fetchSector(tx, ty) {
         }
         
         if (response && response.ok) {
-          const [fetchedAuthors, fetchedColors] = await Promise.all([getAuthors(), getColors()]);
-          authorMap = fetchedAuthors;
-          colorMap = fetchedColors;
-          refreshAllianceDropdown();
-          
           const rawData = await response.json(); 
           
           // Time-sliced normalization inside the lock
@@ -479,6 +474,12 @@ function wireFilterControls() {
     discoveryLayer.redraw();
   });
 }
+
+// fetch the author and color maps before even attempting to parse shit
+const [fetchedAuthors, fetchedColors] = await Promise.all([getAuthors(), getColors()]);
+authorMap = fetchedAuthors;
+colorMap = fetchedColors;
+refreshAllianceDropdown();
 
 const DiscoveryLayer = L.GridLayer.extend({
   createTile(coords, done) {
