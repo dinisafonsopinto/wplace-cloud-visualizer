@@ -204,7 +204,7 @@ function getColors() {
  * CONFIG 
  * ===================================================================== */
 const CONFIG = {
-  WORKER_BASE_URL: "http://localhost:3000",
+  WORKER_BASE_URL: document.location.host === 'wplace-cloud-tracker.pages.dev' ? 'https://wplace-cloud-tracker.pages.dev' : "http://localhost:3000",
   TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}?source=web`,
   SECTOR_SIZE: 1000,        
   START_PIXEL: [541552, 763721],
