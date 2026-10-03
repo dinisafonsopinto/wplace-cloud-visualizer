@@ -130,14 +130,10 @@
 <header class="hud">
   <div class="title"><b>wplace tracker</b><span id="pixel-count">0 pixels loaded</span></div>
   <div class="controls">
-    <button id="toggle-grid" class="active" title="Toggle Sector Blueprint Grid">Sector Grid</button>
+    <button id="toggle-world" class="active" title="Toggle real world map">World Map</button>
     <button id="toggle-wplace" title="Toggle official wplace PNGs">Wplace Base</button>
     <button id="toggle-overlay" class="active" title="Toggle your discovered pixels">Discoveries</button>
-    
-    <div class="color-wrapper" title="Background Color">
-      <span>BG:</span>
-      <input type="color" id="bg-color-picker" value="#0e0e10">
-    </div>
+    <button id="toggle-grid" class="active" title="Toggle Sector Blueprint Grid">Sector Grid</button>
 
     <div class="color-wrapper" title="Color & Opacity for erased pixels">
       <span>Erased:</span>
@@ -204,12 +200,13 @@ function getColors() {
  * CONFIG 
  * ===================================================================== */
 const CONFIG = {
-  WORKER_BASE_URL: document.location.host === 'wplace-cloud-tracker.pages.dev' ? 'https://wplace-sync.dinisafonsopinto.workers.dev' : "zhttp://localhost:3000",
+  WORKER_BASE_URL: document.location.host === 'wplace-cloud-tracker.pages.dev' ? 'https://wplace-sync.dinisafonsopinto.workers.dev' : "http://localhost:3000",
   TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}?source=web`,
   SECTOR_SIZE: 1000,        
   START_PIXEL: [541552, 763721],
   MAX_WPLACE_COORD: 10000000, 
-  MIN_ZOOM: -4, // Safely capped to prevent overwhelming grid rendering
+  MIN_ZOOM: -20,
+  LAYER_MIN_ZOOM: -2,
   MAX_ZOOM: 10,
 
   normalizePixel(localKey, raw) {
@@ -266,6 +263,28 @@ const map = L.map("map", {
 L.control.zoom({ position: "bottomright" }).addTo(map);
 
 /* =========================================================================
+ * LAYER 0: REAL WORLD MAP (Interactive Tile Layer)
+ * ========================================================================= */
+// The wplace map is exactly 2048 sectors wide (0-2047). 
+// 2048 sectors * 1000 pixels = 2,048,000 global pixels wide/tall.
+const osmBounds = [
+    [-2048000, 0], 
+    [0, 2048000]   
+];
+
+const worldLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    tileSize: 250,        // Exactly 1/4th of your 1000px sector
+    zoomOffset: 13,       // Aligns your map zoom 0 with standard web map zoom 13
+    minZoom: CONFIG.MIN_ZOOM,
+    maxZoom: CONFIG.MAX_ZOOM,
+    minNativeZoom: -13,   // Prevents requesting tiles below OSM zoom 0
+    maxNativeZoom: 6,     // Caps tile requests at OSM zoom 19 (Max map detail)
+    bounds: osmBounds,    // Prevents Leaflet from fetching tiles off the edge of the Earth
+    noWrap: true,
+    opacity: 0.35
+}).addTo(map);
+
+/* =========================================================================
  * LAYER 1: SECTOR BLUEPRINT GRID (High Visibility)
  * ========================================================================= */
 const SectorGridLayer = L.GridLayer.extend({
@@ -292,7 +311,12 @@ const SectorGridLayer = L.GridLayer.extend({
   }
 });
 const gridLayer = new SectorGridLayer({ 
-    tileSize: 1000, bounds: maxBounds, minZoom: CONFIG.MIN_ZOOM, maxZoom: CONFIG.MAX_ZOOM, minNativeZoom: 0, maxNativeZoom: 0 
+    tileSize: 1000,
+    bounds: maxBounds,
+    minZoom: CONFIG.LAYER_MIN_ZOOM,
+    maxZoom: CONFIG.MAX_ZOOM,
+    minNativeZoom: 0,
+    maxNativeZoom: 0, 
 }).addTo(map);
 
 /* =========================================================================
@@ -301,16 +325,16 @@ const gridLayer = new SectorGridLayer({
 const wplaceLayer = L.tileLayer("https://backend.wplace.live/files/s0/tiles/{x}/{y}.png", {
   tileSize: 1000,
   bounds: maxBounds,
-  minZoom: CONFIG.MIN_ZOOM,
+  minZoom: CONFIG.LAYER_MIN_ZOOM,
   maxZoom: CONFIG.MAX_ZOOM,
-  minNativeZoom: 0, 
-  maxNativeZoom: 0, 
+  minNativeZoom: 0,
+  maxNativeZoom: 0,
   noWrap: true,
-  opacity: 0.75, 
+  opacity: 0.75,
   updateWhenIdle: true,
-  keepBuffer: 1, 
-  errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==' 
-}); // <--- Not added to map by default
+  keepBuffer: 1,
+  errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==',
+});
 
 /* =========================================================================
  * LAYER 3: DISCOVERY OVERLAY 
@@ -561,18 +585,13 @@ const DiscoveryLayer = L.GridLayer.extend({
 const discoveryLayer = new DiscoveryLayer({ 
   tileSize: 1000, 
   bounds: maxBounds, 
-  minZoom: CONFIG.MIN_ZOOM, 
+  minZoom: CONFIG.LAYER_MIN_ZOOM, 
   maxZoom: CONFIG.MAX_ZOOM, 
   minNativeZoom: 0, 
   maxNativeZoom: 0,
   updateWhenIdle: true,
-  keepBuffer: 1
+  keepBuffer: 1,
 }).addTo(map);
-
-// Wire Background Color changes
-document.getElementById("bg-color-picker").addEventListener("input", (e) => {
-    document.getElementById("map").style.backgroundColor = e.target.value;
-});
 
 // Wire Erased Color/Opacity changes on a 500ms debounce
 let redrawTimer = null;
@@ -644,6 +663,7 @@ function setupToggle(btnId, layer) {
       e.target.classList.remove("active"); 
     } else { 
       layer.addTo(map);
+      if (layer === worldLayer) worldLayer.bringToBack();
       if (layer === gridLayer) gridLayer.bringToBack();
       if (layer === wplaceLayer) wplaceLayer.bringToFront();
       if (layer === discoveryLayer) discoveryLayer.bringToFront();
@@ -652,6 +672,7 @@ function setupToggle(btnId, layer) {
   });
 }
 
+setupToggle("toggle-world", worldLayer);
 setupToggle("toggle-grid", gridLayer);
 setupToggle("toggle-wplace", wplaceLayer);
 setupToggle("toggle-overlay", discoveryLayer);
