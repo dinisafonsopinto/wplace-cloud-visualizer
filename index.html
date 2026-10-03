@@ -204,7 +204,7 @@ function getColors() {
  * CONFIG 
  * ===================================================================== */
 const CONFIG = {
-  WORKER_BASE_URL: "https://wplace-sync.dinisafonsopinto.workers.dev",
+  WORKER_BASE_URL: "http://localhost:3000",
   TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}?source=web`,
   SECTOR_SIZE: 1000,        
   START_PIXEL: [541552, 763721],
@@ -436,7 +436,28 @@ function filterIsActive() {
 }
 
 function pixelMatchesFilter(p) {
-  if (filterState.username && !p.username.toLowerCase().includes(filterState.username)) return false;
+  if (filterState.username) {
+    const query = filterState.username;
+    const username = p.username;
+    // Check if the query looks like a regex: /pattern/ or /pattern/i
+    const regexMatch = query.match(/^\/(.+)\/([a-z]*)$/);
+    
+    if (regexMatch) {
+      try {
+        // regexMatch[1] is the pattern, regexMatch[2] is the flags. 
+        // We default to 'i' (case-insensitive) if they didn't provide flags.
+        const rx = new RegExp(regexMatch[1], regexMatch[2] || 'i');
+        if (!rx.test(username)) return false;
+        
+      } catch (e) {
+        // Safety net: if the regex is malformed, fall back to literal text search
+        if (!username.toLowerCase().includes(query.toLowerCase())) return false;
+      }
+    } else {
+      // Standard user behavior: literal text match (no escaping needed)
+      if (!username.toLowerCase().includes(query.toLowerCase())) return false;
+    }
+  }
   if (filterState.color && (p.erased || p.color.toLowerCase() !== filterState.color.toLowerCase())) return false;
   if (filterState.alliance && filterState.alliance === "no-unknown-alliance-users" && p.username !== "Blank / Unknown" && !p.alliance) return true;
   if (filterState.alliance && p.alliance !== filterState.alliance) return false;
@@ -454,7 +475,7 @@ function wireFilterControls() {
   usernameInput.addEventListener("input", () => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      filterState.username = usernameInput.value.trim().toLowerCase();
+      filterState.username = usernameInput.value.trim();
       discoveryLayer.redraw();
     }, 500);
   });
