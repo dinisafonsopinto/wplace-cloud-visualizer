@@ -488,21 +488,25 @@ function pixelMatchesFilter(p) {
   return true;
 }
 
+const usernameInput = document.getElementById("filter-username");
+let debounceTimer = null;
+
+function onUsernameInput() {
+  // extracted the logic here so it can be used in multiple locations
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    filterState.username = usernameInput.value.trim();
+    discoveryLayer.redraw();
+  }, 500);
+}
+
 function wireFilterControls() {
-  const usernameInput = document.getElementById("filter-username");
   const allianceSelect = document.getElementById("filter-alliance");
   const colorToggle = document.getElementById("color-filter-toggle");
   const colorPicker = document.getElementById("color-filter-picker");
   const clearBtn = document.getElementById("clear-filters");
 
-  let debounceTimer = null;
-  usernameInput.addEventListener("input", () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      filterState.username = usernameInput.value.trim();
-      discoveryLayer.redraw();
-    }, 500);
-  });
+  usernameInput.addEventListener("input", onUsernameInput);
 
   allianceSelect.addEventListener("change", () => {
     filterState.alliance = allianceSelect.value;
@@ -634,7 +638,7 @@ map.on("mousemove", async (e) => {
   if (!hit) { inspector.style.display = "none"; return; }
   
   inspector.innerHTML = `
-    <div class="user">${escapeHtml(hit.username)}</div>
+    <div class="user" id="inspector-username">${escapeHtml(hit.username)}</div>
     ${hit.alliance ? `<div class="row" style="margin-bottom:4px;"><span class="label">Alliance</span><span class="value" style="color:#aaa;">${escapeHtml(hit.alliance)}</span></div>` : ""}
     <div class="row"><span class="label">Coords</span><span class="value">${globalX}, ${globalY}</span></div>
     <div class="row"><span class="label">Sector</span><span class="value">${tx}, ${ty}</span></div>
@@ -643,6 +647,11 @@ map.on("mousemove", async (e) => {
   inspector.style.display = "block";
   inspector.style.left = e.originalEvent.pageX + 14 + "px";
   inspector.style.top = e.originalEvent.pageY + 14 + "px";
+});
+
+map.on("click", () => {
+  document.getElementById("filter-username").value = document.getElementById('inspector-username')?.textContent ?? '';
+  onUsernameInput();
 });
 
 map.on("mouseout", () => (inspector.style.display = "none"));
