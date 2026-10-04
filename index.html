@@ -649,11 +649,6 @@ map.on("mousemove", async (e) => {
   inspector.style.top = e.originalEvent.pageY + 14 + "px";
 });
 
-map.on("click", () => {
-  document.getElementById("filter-username").value = document.getElementById('inspector-username')?.textContent ?? '';
-  onUsernameInput();
-});
-
 map.on("mouseout", () => (inspector.style.display = "none"));
 
 function escapeHtml(s) {
@@ -731,7 +726,11 @@ document.getElementById("tool-polygon").addEventListener("click", (e) => {
 });
 
 map.on("click", (e) => {
-  if (!isDrawingPolygon) return;
+  if (!isDrawingPolygon) {
+    document.getElementById("filter-username").value = document.getElementById('inspector-username')?.textContent ?? '';
+    onUsernameInput();
+    return;
+  }
   const globalX = Math.floor(e.latlng.lng);
   const globalY = Math.floor(-e.latlng.lat);
   scanPolygonVertices.push({ x: globalX, y: globalY });
