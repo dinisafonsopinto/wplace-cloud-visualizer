@@ -121,6 +121,26 @@
   .sp-row .sp-count{ font-family:var(--mono); color:rgba(242,240,234,0.7); flex-shrink:0; }
   .sp-empty{ padding:14px 12px; color:rgba(242,240,234,0.5); font-style:italic; }
 
+  /* ---- Custom Color Dropdown ---- */
+  .color-dropdown { position: relative; display: inline-block; width: 105px; font-size: 12px; }
+  .color-dropdown-selected {
+    background: rgba(255,255,255,0.08); padding: 5px 6px; border-radius: 2px;
+    display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--panel-fg);
+  }
+  .color-swatch { 
+    width: 12px; height: 12px; border-radius: 2px; 
+    border: 1px solid rgba(255,255,255,0.3); flex-shrink: 0; 
+  }
+  .color-dropdown-list {
+    position: absolute; top: 100%; left: 0; right: 0; background: var(--panel-bg);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 2px; margin-top: 4px;
+    max-height: 150px; overflow-y: auto; display: none; z-index: 1300; flex-direction: column;
+  }
+  .color-dropdown.open .color-dropdown-list { display: flex; }
+  .color-dropdown-item {
+    padding: 6px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--panel-fg);
+  }
+  .color-dropdown-item:hover { background: rgba(255,255,255,0.1); }
 </style>
 </head>
 <body>
@@ -148,7 +168,13 @@
       </select>
       <label title="Only match this exact color">
         <input type="checkbox" id="color-filter-toggle" />
-        <input type="color" id="color-filter-picker" value="#e0473a">
+        <div class="color-dropdown" id="color-dropdown">
+          <div class="color-dropdown-selected" id="color-dropdown-selected">
+            <div class="color-swatch" id="selected-swatch" style="background: transparent;"></div>
+            <span id="selected-hex">Select...</span>
+          </div>
+          <div class="color-dropdown-list" id="color-dropdown-list"></div>
+        </div>
       </label>
       <button id="clear-filters" title="Clear all filters">Clear</button>
     </div>
@@ -373,6 +399,32 @@ function refreshAllianceDropdown() {
   if (alliances.includes(current)) select.value = current;
 }
 
+function refreshColorDropdown() {
+  const list = document.getElementById("color-dropdown-list");
+  const uniqueColors = new Set();
+
+  Object.values(colorMap).forEach(colorInt => {
+      const hex = '#' + colorInt.toString(16).padStart(6, '0');
+      uniqueColors.add(hex);
+  });
+
+  const colors = Array.from(uniqueColors).sort();
+  list.innerHTML = colors.map(c => `
+    <div class="color-dropdown-item" data-value="${c}">
+      <div class="color-swatch" style="background: ${c};"></div>
+      ${c}
+    </div>
+  `).join("");
+
+  // Set default selected color visually if none is picked yet
+  if (colors.length > 0) {
+     const defaultColor = colors[0];
+     document.getElementById("selected-swatch").style.background = defaultColor;
+     document.getElementById("selected-hex").textContent = defaultColor;
+     document.getElementById("color-dropdown").dataset.value = defaultColor;
+  }
+}
+
 // Global lock that resolves immediately for the first request
 let sectorFetchLock = Promise.resolve();
 
@@ -495,6 +547,8 @@ function onUsernameInput() {
   // extracted the logic here so it can be used in multiple locations
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
+    const newValue = usernameInput.value.trim();
+    if (newValue === filterState.username) return;
     filterState.username = usernameInput.value.trim();
     discoveryLayer.redraw();
   }, 500);
@@ -503,7 +557,9 @@ function onUsernameInput() {
 function wireFilterControls() {
   const allianceSelect = document.getElementById("filter-alliance");
   const colorToggle = document.getElementById("color-filter-toggle");
-  const colorPicker = document.getElementById("color-filter-picker");
+  const colorDropdown = document.getElementById("color-dropdown");
+  const colorDropdownSelected = document.getElementById("color-dropdown-selected");
+  const colorDropdownList = document.getElementById("color-dropdown-list");
   const clearBtn = document.getElementById("clear-filters");
 
   usernameInput.addEventListener("input", onUsernameInput);
@@ -514,11 +570,41 @@ function wireFilterControls() {
   });
 
   const applyColorFilter = () => {
-    filterState.color = colorToggle.checked ? colorPicker.value : null;
+    filterState.color = colorToggle.checked ? colorDropdown.dataset.value : null;
     discoveryLayer.redraw();
   };
   colorToggle.addEventListener("change", applyColorFilter);
-  colorPicker.addEventListener("input", () => { if (colorToggle.checked) applyColorFilter(); });
+
+  // Toggle custom dropdown
+  colorDropdownSelected.addEventListener("click", (e) => {
+      e.preventDefault();
+      colorDropdown.classList.toggle("open");
+  });
+
+  // Handle selection from custom dropdown
+  colorDropdownList.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      const item = e.target.closest(".color-dropdown-item");
+      if (!item) return;
+
+      const value = item.dataset.value;
+      colorDropdown.dataset.value = value;
+      document.getElementById("selected-swatch").style.background = value;
+      document.getElementById("selected-hex").textContent = value;
+
+      colorDropdown.classList.remove("open");
+
+      colorToggle.checked = true;
+      applyColorFilter();
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+      if (!colorDropdown.contains(e.target)) {
+          colorDropdown.classList.remove("open");
+      }
+  });
 
   clearBtn.addEventListener("click", () => {
     usernameInput.value = "";
@@ -534,6 +620,7 @@ const [fetchedAuthors, fetchedColors] = await Promise.all([getAuthors(), getColo
 authorMap = fetchedAuthors;
 colorMap = fetchedColors;
 refreshAllianceDropdown();
+refreshColorDropdown();
 
 const DiscoveryLayer = L.GridLayer.extend({
   createTile(coords, done) {
@@ -605,11 +692,22 @@ const redrawDiscovery = () => {
         discoveryLayer.redraw();
     }, 500);
 }
-// const redrawDiscovery = () => {
-//     discoveryLayer.redraw();
-// }
-document.getElementById("erased-color-picker").addEventListener("input", redrawDiscovery);
-document.getElementById("erased-opacity-slider").addEventListener("input", redrawDiscovery);
+const erasedColorPicker = document.getElementById("erased-color-picker");
+const erasedOpacitySlider = document.getElementById("erased-opacity-slider");
+
+// Restore from localStorage
+if (localStorage.getItem("erased-color")) erasedColorPicker.value = localStorage.getItem("erased-color");
+if (localStorage.getItem("erased-opacity")) erasedOpacitySlider.value = localStorage.getItem("erased-opacity");
+
+// Save on change
+erasedColorPicker.addEventListener("input", (e) => {
+    localStorage.setItem("erased-color", e.target.value);
+    redrawDiscovery();
+});
+erasedOpacitySlider.addEventListener("input", (e) => {
+    localStorage.setItem("erased-opacity", e.target.value);
+    redrawDiscovery();
+});
 
 wireFilterControls();
 
@@ -617,6 +715,10 @@ wireFilterControls();
  * INSPECTOR TOOLTIP
  * ========================================================================= */
 const inspector = document.getElementById("inspector");
+function hideInspector() {
+  inspector.style.display = "none";
+  inspector.innerHTML = "";
+}
 
 map.on("mousemove", async (e) => {
   const globalX = Math.floor(e.latlng.lng);
@@ -630,12 +732,12 @@ map.on("mousemove", async (e) => {
   const localY = globalY % CONFIG.SECTOR_SIZE;
 
   const cachedSector = sectorCache.get(`${tx},${ty}`);
-  if (!cachedSector) { inspector.style.display = "none"; return; }
+  if (!cachedSector) { hideInspector(); return; }
 
   const pixels = await cachedSector;
   const hit = pixels.find((p) => p.x === localX && p.y === localY);
 
-  if (!hit) { inspector.style.display = "none"; return; }
+  if (!hit) { hideInspector(); return; }
   
   inspector.innerHTML = `
     <div class="user" id="inspector-username">${escapeHtml(hit.username)}</div>
@@ -649,7 +751,7 @@ map.on("mousemove", async (e) => {
   inspector.style.top = e.originalEvent.pageY + 14 + "px";
 });
 
-map.on("mouseout", () => (inspector.style.display = "none"));
+map.on("mouseout", hideInspector);
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -660,26 +762,42 @@ function escapeHtml(s) {
 /* =========================================================================
  * UI CHROME / TOGGLES
  * ========================================================================= */
-function setupToggle(btnId, layer) {
-  document.getElementById(btnId).addEventListener("click", (e) => {
+ function setupToggle(btnId, layer, defaultActive) {
+  const btn = document.getElementById(btnId);
+  const savedState = localStorage.getItem(btnId);
+  const isActive = savedState !== null ? savedState === "true" : defaultActive;
+
+  // Initialize state on load
+  if (isActive) {
+    if (!map.hasLayer(layer)) layer.addTo(map);
+    btn.classList.add("active");
+  } else {
+    if (map.hasLayer(layer)) map.removeLayer(layer);
+    btn.classList.remove("active");
+  }
+
+  // Handle clicks
+  btn.addEventListener("click", (e) => {
     if (map.hasLayer(layer)) { 
       map.removeLayer(layer); 
-      e.target.classList.remove("active"); 
+      e.target.classList.remove("active");
+      localStorage.setItem(btnId, "false");
     } else { 
       layer.addTo(map);
       if (layer === worldLayer) worldLayer.bringToBack();
       if (layer === gridLayer) gridLayer.bringToBack();
       if (layer === wplaceLayer) wplaceLayer.bringToFront();
       if (layer === discoveryLayer) discoveryLayer.bringToFront();
-      e.target.classList.add("active"); 
+      e.target.classList.add("active");
+      localStorage.setItem(btnId, "true");
     }
   });
 }
 
-setupToggle("toggle-world", worldLayer);
-setupToggle("toggle-grid", gridLayer);
-setupToggle("toggle-wplace", wplaceLayer);
-setupToggle("toggle-overlay", discoveryLayer);
+setupToggle("toggle-world", worldLayer, true);
+setupToggle("toggle-grid", gridLayer, true);
+setupToggle("toggle-wplace", wplaceLayer, false);
+setupToggle("toggle-overlay", discoveryLayer, true);
 
 function updateZoomChip() { document.getElementById("zoom-chip").textContent = `z${map.getZoom()}`; }
 map.on("zoomend", updateZoomChip); updateZoomChip();
@@ -699,6 +817,8 @@ let polygonPath = null;
 document.getElementById("scan-close").addEventListener("click", () => {
   scanPanel.style.display = "none";
   polygonLayer.clearLayers();
+  localStorage.removeItem("scan-polygon");
+  scanPolygonVertices = [];
 });
 
 document.getElementById("tool-polygon").addEventListener("click", (e) => {
@@ -708,6 +828,7 @@ document.getElementById("tool-polygon").addEventListener("click", (e) => {
   if (isDrawingPolygon) {
       document.getElementById("map").style.cursor = "crosshair";
       scanPolygonVertices = [];
+      localStorage.removeItem("scan-polygon"); // Clear previous on new draw
       polygonLayer.clearLayers();
       polygonPath = L.polygon([], { color: '#00ff00', fillOpacity: 0.2, weight: 2, interactive: false }).addTo(polygonLayer);
       
@@ -717,10 +838,12 @@ document.getElementById("tool-polygon").addEventListener("click", (e) => {
   } else {
       document.getElementById("map").style.cursor = "";
       if (scanPolygonVertices.length >= 3) {
+          localStorage.setItem("scan-polygon", JSON.stringify(scanPolygonVertices)); // Save area
           runScan(); 
       } else {
           scanPanel.style.display = "none";
           polygonLayer.clearLayers();
+          localStorage.removeItem("scan-polygon"); // Discard incomplete areas
       }
   }
 });
@@ -808,6 +931,33 @@ async function runScan() {
     });
   });
 }
+
+// Restore saved polygon area on load
+const savedPolygon = localStorage.getItem("scan-polygon");
+if (savedPolygon) {
+  try {
+    scanPolygonVertices = JSON.parse(savedPolygon);
+    if (scanPolygonVertices.length >= 3) {
+      polygonPath = L.polygon([], { color: '#00ff00', fillOpacity: 0.2, weight: 2, interactive: false }).addTo(polygonLayer);
+
+      scanPolygonVertices.forEach(pt => {
+        const latlng = L.latLng(-pt.y, pt.x);
+        polygonPath.addLatLng(latlng);
+        L.circleMarker(latlng, { radius: 4, color: '#00ff00', fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(polygonLayer);
+      });
+
+      scanPanel.style.display = "block";
+      scanMeta.textContent = "Restoring previous scan...";
+
+      // Delay briefly to allow map tiles to queue in sectorCache before scanning
+      setTimeout(runScan, 800);
+    }
+  } catch (e) {
+    localStorage.removeItem("scan-polygon");
+    scanPolygonVertices = [];
+  }
+}
+
 </script>
 </body>
 </html>
