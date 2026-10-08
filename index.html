@@ -742,6 +742,12 @@ function hideInspector() {
 
 // Right-click (contextmenu) displays coordinates regardless of layer toggle
 map.on("contextmenu", async (e) => {
+  if (isInspectorPinned) {
+    isInspectorPinned = false;
+    hideInspector();
+    return;
+  }
+
   if (map.getZoom() < CONFIG.LAYER_MIN_ZOOM) return;
 
   isInspectorPinned = true;
@@ -850,6 +856,8 @@ function escapeHtml(s) {
 
   // Handle clicks
   btn.addEventListener("click", (e) => {
+    isInspectorPinned = false;
+    hideInspector();
     if (map.hasLayer(layer)) { 
       map.removeLayer(layer); 
       e.target.classList.remove("active");
