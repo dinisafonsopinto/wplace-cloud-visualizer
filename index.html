@@ -813,10 +813,10 @@ map.on("mousemove", async (e) => {
   
   inspector.innerHTML = `
     <div class="user" id="inspector-username">${escapeHtml(hit.username)}</div>
-    ${hit.alliance ? `<div class="row" style="margin-bottom:4px;"><span class="label">Alliance</span><span class="value" style="color:#aaa;">${escapeHtml(hit.alliance)}</span></div>` : ""}
+    ${hit.alliance ? `<div class="row" style="margin-bottom:4px;"><span class="label">Alliance</span><span class="value" style="color:#aaa;">\${escapeHtml(hit.alliance)}</span></div>` : ""}
     <div class="row"><span class="label">Coords</span><span class="value">${globalX}, ${globalY}</span></div>
     <div class="row"><span class="label">Sector</span><span class="value">${tx}, ${ty}</span></div>
-    ${hit.erased ? `<div class="row" style="margin-top:4px; color:${document.getElementById("erased-color-picker").value}; font-size:10px;">[ERASED PIXEL]</div>` : ""}
+    ${hit.erased ? `<div class="row" style="margin-top:4px; color:\${document.getElementById("erased-color-picker").value}; font-size:10px;">[ERASED PIXEL]</div>` : ""}
   `;
   inspector.style.display = "block";
   inspector.style.left = e.originalEvent.pageX + 14 + "px";
