@@ -856,8 +856,6 @@ function escapeHtml(s) {
 
   // Handle clicks
   btn.addEventListener("click", (e) => {
-    isInspectorPinned = false;
-    hideInspector();
     if (map.hasLayer(layer)) { 
       map.removeLayer(layer); 
       e.target.classList.remove("active");
@@ -929,6 +927,8 @@ document.getElementById("tool-polygon").addEventListener("click", (e) => {
 });
 
 map.on("click", (e) => {
+  isInspectorPinned = false;
+  hideInspector();
   if (!isDrawingPolygon) {
     document.getElementById("filter-username").value = document.getElementById('inspector-username')?.textContent ?? '';
     onUsernameInput();
