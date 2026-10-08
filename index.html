@@ -229,8 +229,8 @@ const CONFIG = {
   WORKER_BASE_URL: document.location.host === 'wplace-cloud-tracker.pages.dev' ? 'https://wplace-sync.dinisafonsopinto.workers.dev' : "http://localhost:3000",
   TILE_ENDPOINT: (tx, ty) => `${CONFIG.WORKER_BASE_URL}/tile/${tx}/${ty}?source=web`,
   SECTOR_SIZE: 1000,        
-  START_PIXEL: [541552, 763721],
-  MAX_WPLACE_COORD: 10000000, 
+  START_PIXEL: [961692, 974592],
+  MAX_WPLACE_COORD: 2048000, 
   MIN_ZOOM: -20,
   LAYER_MIN_ZOOM: -2,
   MAX_ZOOM: 10,
@@ -276,10 +276,20 @@ const maxBounds = [
     [0, CONFIG.MAX_WPLACE_COORD]   
 ];
 
+const savedLat = localStorage.getItem("saved-lat");
+const savedLng = localStorage.getItem("saved-lng");
+const savedZoom = localStorage.getItem("saved-zoom");
+
+const initialCenter = (savedLat !== null && savedLng !== null) 
+    ? [parseFloat(savedLat), parseFloat(savedLng)] 
+    : [-CONFIG.START_PIXEL[1], CONFIG.START_PIXEL[0]];
+
+const initialZoom = savedZoom !== null ? parseInt(savedZoom, 10) : 1;
+
 const map = L.map("map", {
   crs: L.CRS.Simple, 
-  center: [-CONFIG.START_PIXEL[1], CONFIG.START_PIXEL[0]],
-  zoom: 0, 
+  center: initialCenter,
+  zoom: initialZoom, 
   minZoom: CONFIG.MIN_ZOOM, 
   maxZoom: CONFIG.MAX_ZOOM,
   maxBounds: maxBounds,
@@ -287,6 +297,13 @@ const map = L.map("map", {
   zoomControl: false,
 });
 L.control.zoom({ position: "bottomright" }).addTo(map);
+
+map.on("moveend", () => {
+    const center = map.getCenter();
+    localStorage.setItem("saved-lat", center.lat);
+    localStorage.setItem("saved-lng", center.lng);
+    localStorage.setItem("saved-zoom", map.getZoom());
+});
 
 /* =========================================================================
  * LAYER 0: REAL WORLD MAP (Interactive Tile Layer)
@@ -448,7 +465,7 @@ function fetchSector(tx, ty) {
         
         const lastFetched = localStorage.getItem(cacheKeyAge);
         const now = Date.now();
-        const maxCacheAge = 1000 * 60 * 30; // 30 Minutes
+        const maxCacheAge = 1000 * 60 * 5; // 5 Minutes
         
         if (!response || !lastFetched || (now - parseInt(lastFetched)) > maxCacheAge) {
           try {
@@ -714,13 +731,68 @@ wireFilterControls();
 /* =========================================================================
  * INSPECTOR TOOLTIP
  * ========================================================================= */
-const inspector = document.getElementById("inspector");
+ const inspector = document.getElementById("inspector");
+let isInspectorPinned = false; // Flag to keep it open on right-click
+
 function hideInspector() {
+  if (isInspectorPinned) return;
   inspector.style.display = "none";
   inspector.innerHTML = "";
 }
 
+// Right-click (contextmenu) displays coordinates regardless of layer toggle
+map.on("contextmenu", async (e) => {
+  if (map.getZoom() < CONFIG.LAYER_MIN_ZOOM) return;
+
+  isInspectorPinned = true;
+  
+  const globalX = Math.floor(e.latlng.lng);
+  const globalY = Math.floor(-e.latlng.lat);
+  
+  if (globalX < 0 || globalY < 0) return;
+
+  const tx = Math.floor(globalX / CONFIG.SECTOR_SIZE);
+  const ty = Math.floor(globalY / CONFIG.SECTOR_SIZE);
+  const localX = globalX % CONFIG.SECTOR_SIZE;
+  const localY = globalY % CONFIG.SECTOR_SIZE;
+
+  let hit = null;
+  const cachedSector = sectorCache.get(`${tx},${ty}`);
+  if (cachedSector) {
+    const pixels = await cachedSector;
+    hit = pixels.find((p) => p.x === localX && p.y === localY);
+  }
+
+  if (hit) {
+    inspector.innerHTML = `
+      <div class="user" id="inspector-username">${escapeHtml(hit.username)}</div>
+      ${hit.alliance ? `<div class="row" style="margin-bottom:4px;"><span class="label">Alliance</span><span class="value" style="color:#aaa;">\${escapeHtml(hit.alliance)}</span></div>` : ""}
+      <div class="row"><span class="label">Coords</span><span class="value">${globalX}, ${globalY}</span></div>
+      <div class="row"><span class="label">Sector</span><span class="value">${tx}, ${ty}</span></div>
+      ${hit.erased ? `<div class="row" style="margin-top:4px; color:\${document.getElementById("erased-color-picker").value}; font-size:10px;">[ERASED PIXEL]</div>` : ""}
+    `;
+  } else {
+    inspector.innerHTML = `
+      <div class="user" style="color:#aaa;">Empty / Unscanned</div>
+      <div class="row"><span class="label">Coords</span><span class="value">${globalX}, ${globalY}</span></div>
+      <div class="row"><span class="label">Sector</span><span class="value">${tx}, ${ty}</span></div>
+    `;
+  }
+  
+  inspector.style.display = "block";
+  inspector.style.left = e.originalEvent.pageX + 14 + "px";
+  inspector.style.top = e.originalEvent.pageY + 14 + "px";
+});
+
 map.on("mousemove", async (e) => {
+  if (isInspectorPinned) return; // Prevent hover events from hiding the right-clicked popup
+
+  // Only display if Discoveries layer is active AND zoom is sufficient
+  if (!map.hasLayer(discoveryLayer) || map.getZoom() < CONFIG.LAYER_MIN_ZOOM) {
+    hideInspector();
+    return;
+  }
+
   const globalX = Math.floor(e.latlng.lng);
   const globalY = Math.floor(-e.latlng.lat);
   
