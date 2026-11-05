@@ -1039,22 +1039,27 @@ async function runScan() {
     minTy = Math.min(minTy, ty); maxTy = Math.max(maxTy, ty);
   }
 
-  // 2. Filter the cache to only await sectors relevant to the drawn area
-  const entries = Array.from(sectorCache.entries()).filter(([key]) => {
-    const [tx, ty] = key.split(",").map(Number);
-    return tx >= minTx && tx <= maxTx && ty >= minTy && ty <= maxTy;
-  });
+  // 2. Proactively queue all sectors within the bounding box
+  const fetchPromises = [];
+  const sectorKeys = [];
+  
+  for (let tx = minTx; tx <= maxTx; tx++) {
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      sectorKeys.push(`${tx},${ty}`);
+      fetchPromises.push(fetchSector(tx, ty).catch(() => []));
+    }
+  }
 
-  // 3. Await only the filtered sectors
-  const sectorResults = await Promise.all(entries.map(([key, p]) => p.catch(() => [])));
+  // 3. Wait for all required sectors to load, regardless of viewport
+  const sectorResults = await Promise.all(fetchPromises);
 
   let boundedPixels = 0;
   const matchCounts = new Map(); 
   const groupBy = filterState.alliance ? "alliance" : "username";
 
-  entries.forEach(([key], i) => {
-    const pixels = sectorResults[i] || [];
-    const [tx, ty] = key.split(",").map(Number);
+  // 4. Process the results using the aligned sectorKeys array
+  sectorResults.forEach((pixels, i) => {
+    const [tx, ty] = sectorKeys[i].split(",").map(Number);
 
     for (const p of pixels) {
       const globalX = tx * CONFIG.SECTOR_SIZE + p.x;
