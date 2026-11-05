@@ -103,13 +103,13 @@
     background:var(--panel-bg); color:var(--panel-fg); border-radius:2px;
     width:280px; max-height:70vh; overflow-y:auto; font-size:12px; display:none;
   }
-  #scan-panel .sp-header{
+  .sp-header{
     display:flex; justify-content:space-between; align-items:center;
     padding:10px 12px; border-bottom:1px solid rgba(255,255,255,0.1); font-family:var(--mono);
   }
-  #scan-panel .sp-header b{ font-size:12px; }
-  #scan-panel .sp-close{ cursor:pointer; color:rgba(242,240,234,0.5); }
-  #scan-panel .sp-close:hover{ color:#fff; }
+  .sp-header b{ font-size:12px; }
+  .sp-close{ cursor:pointer; color:rgba(242,240,234,0.5); }
+  .sp-close:hover{ color:#fff; }
   #scan-panel .sp-meta{ padding:8px 12px; color:rgba(242,240,234,0.55); font-family:var(--mono); font-size:10px; }
   #scan-results{ padding:0 6px 8px; }
   .sp-row{
@@ -141,6 +141,28 @@
     padding: 6px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--panel-fg);
   }
   .color-dropdown-item:hover { background: rgba(255,255,255,0.1); }
+
+  /* ---- Help Modal ---- */
+  #help-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.6); z-index: 2000;
+    display: none; align-items: center; justify-content: center; backdrop-filter: blur(2px);
+  }
+  #help-modal {
+    background: var(--panel-bg); color: var(--panel-fg); border-radius: 2px;
+    width: 450px; max-width: 90vw; max-height: 80vh; overflow-y: auto; font-size: 13px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  #help-modal .sp-header b{
+    font-size: large;
+  }
+  .help-body { padding: 16px; line-height: 1.5; color: rgba(242,240,234,0.8); }
+  .help-body h3 { color: var(--accent); font-size: 13px; margin: 16px 0 6px 0; }
+  .help-body h3:first-child { margin-top: 0; }
+  .help-body p { margin: 0 0 10px 0; }
+  .help-body ul { margin: 0 0 12px 0; padding-left: 20px; }
+  .help-body li { margin-bottom: 6px; }
+  .help-body code { background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 2px; font-family: var(--mono); font-size: 11px; }
+  a { color: var(--panel-fg); }
 </style>
 </head>
 <body>
@@ -180,6 +202,8 @@
     </div>
 
     <button id="tool-polygon" title="Draw polygon to scan loaded sectors">Select Area</button>
+
+    <button id="btn-help" title="How to use this tracker">Help</button>
   </div>
 </header>
 
@@ -199,13 +223,62 @@
 
 <div id="inspector"></div>
 
+<div id="help-overlay">
+  <div id="help-modal">
+    <div class="sp-header">
+      <b>Welcome to wplace tracker</b>
+      <span class="sp-close" id="help-close">✕</span>
+    </div>
+    <div class="help-body">
+      <p>This tool lets you explore, filter, and scan the wplace canvas to track user and alliance activity.</p>
+      
+      <h3>🗺️ Navigation & Layers</h3>
+      <ul>
+        <li><b>World Map:</b> Toggles the real-world OpenStreetMap background.</li>
+        <li><b>Wplace Base:</b> Toggles the official rendered wplace canvas.</li>
+        <li><b>Discoveries:</b> Shows individual pixels tracked by the database.</li>
+      </ul>
+
+      <h3>🔍 Inspection & Filtering</h3>
+      <ul>
+        <li><b>Inspector:</b> Hover over any pixel to see its author, coordinates, and alliance. Right-click to pin the tooltip.</li>
+        <li><b>Filters:</b> Search for specific users (supports Regex like <code>/name/i</code>), filter by alliance, or isolate specific colors.</li>
+      </ul>
+
+      <h3>📐 Area Scanner</h3>
+      <ul>
+        <li>Click <b>Select Area</b> to draw a polygon on the map.</li>
+        <li>Click to drop points, then click <b>Select Area</b> again to close the shape and run the scan.</li>
+        <li>The scanner will count and group all matching pixels inside your drawn boundary.</li>
+      </ul>
+      <p>If you have any questions or feedback, <a href="https://https://github.com/dinisafonsopinto/wplace-cloud-visualizer/issues" target="_blank">please open an issue</a>.</p>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const warnedTime = localStorage.getItem("warned");
-if (!warnedTime || warnedTime - parseInt(Date.now()) > 1000 * 60 * 60 * 24) {
-  localStorage.setItem("warned", Date.now());
-  alert("This website is still in development. Expect bugs and broken features.");
+const helpOverlay = document.getElementById("help-overlay");
+const helpBtn = document.getElementById("btn-help");
+const helpClose = document.getElementById("help-close");
+
+function openHelp() { helpOverlay.style.display = "flex"; }
+function closeHelp() { helpOverlay.style.display = "none"; }
+
+helpBtn.addEventListener("click", openHelp);
+helpClose.addEventListener("click", closeHelp);
+helpOverlay.addEventListener("click", (e) => {
+  if (e.target === helpOverlay) closeHelp();
+});
+
+// Auto-show for new users (expires after 7 days without login)
+const lastSeen = localStorage.getItem("help-seen-time");
+const thirtyDays = 1000 * 60 * 60 * 24 * 7;
+
+if (!lastSeen || Date.now() - parseInt(lastSeen) > thirtyDays) {
+  openHelp();
 }
+localStorage.setItem("help-seen-time", Date.now().toString());
 </script>
 <script type="module">
 let colorsPromise = null;
