@@ -956,7 +956,23 @@ async function runScan() {
   scanMeta.textContent = "Scanning bounded area...";
   scanResultsEl.innerHTML = "";
 
-  const entries = Array.from(sectorCache.entries());
+  // 1. Calculate the bounding box of the polygon in sector coordinates
+  let minTx = Infinity, maxTx = -Infinity;
+  let minTy = Infinity, maxTy = -Infinity;
+  for (const pt of scanPolygonVertices) {
+    const tx = Math.floor(pt.x / CONFIG.SECTOR_SIZE);
+    const ty = Math.floor(pt.y / CONFIG.SECTOR_SIZE);
+    minTx = Math.min(minTx, tx); maxTx = Math.max(maxTx, tx);
+    minTy = Math.min(minTy, ty); maxTy = Math.max(maxTy, ty);
+  }
+
+  // 2. Filter the cache to only await sectors relevant to the drawn area
+  const entries = Array.from(sectorCache.entries()).filter(([key]) => {
+    const [tx, ty] = key.split(",").map(Number);
+    return tx >= minTx && tx <= maxTx && ty >= minTy && ty <= maxTy;
+  });
+
+  // 3. Await only the filtered sectors
   const sectorResults = await Promise.all(entries.map(([key, p]) => p.catch(() => [])));
 
   let boundedPixels = 0;
